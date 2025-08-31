@@ -13,8 +13,8 @@ class PayPalConfig(models.Model):
     """Model to store PayPal configuration settings."""
     
     name = models.CharField(max_length=100, unique=True, help_text="Configuration name")
-    client_id = models.CharField(max_length=255, help_text="PayPal Client ID")
-    client_secret = models.CharField(max_length=255, help_text="PayPal Client Secret")
+    client_id = models.CharField(max_length=600, help_text="PayPal Client ID")
+    client_secret = models.CharField(max_length=600, help_text="PayPal Client Secret")
     mode = models.CharField(
         max_length=10,
         choices=[('sandbox', 'Sandbox'), ('live', 'Live')],
