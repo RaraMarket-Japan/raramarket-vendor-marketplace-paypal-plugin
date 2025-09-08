@@ -16,7 +16,7 @@ router.register(r'webhook-endpoints', views.WebhookEndpointViewSet, basename='we
 urlpatterns = [
     path('paypal-config/', include(router.urls)),
     # Webhook endpoint (no authentication required)
-    path('webhook/', views.paypal_webhook_view, name='paypal-webhook'),
+    path('webhook/paypal/', views.paypal_webhook_view, name='paypal-webhook'),
     
     # Payment endpoints
     path('paypal-orders/', views.PayPalPaymentViewSet.as_view({
