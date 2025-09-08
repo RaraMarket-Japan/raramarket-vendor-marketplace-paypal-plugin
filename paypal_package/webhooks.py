@@ -1,7 +1,7 @@
 """
 Webhook management and handling for PayPal package.
 """
-
+import os
 import json
 import logging
 import hashlib
@@ -194,13 +194,13 @@ class WebhookHandler:
         """Verify webhook signature from PayPal."""
         try:
             # Get webhook ID from database (you might want to store this)
-            webhook_endpoints = WebhookEndpoint.objects.filter(is_active=True)
-            if not webhook_endpoints.exists():
-                logger.warning("No active webhook endpoints found")
-                return True  # Skip verification if no endpoints configured
+            # webhook_endpoints = WebhookEndpoint.objects.filter(is_active=True)
+            # if not webhook_endpoints.exists():
+            #     logger.warning("No active webhook endpoints found")
+            #     return True  # Skip verification if no endpoints configured
             
             # Use the first active webhook endpoint
-            webhook_id = webhook_endpoints.first().webhook_id
+            webhook_id = os.environ.get(“PAYPAL_WEBHOOK_ID”)
             
             # Verify signature using PayPal API
             verification_result = self.client.verify_webhook_signature(
