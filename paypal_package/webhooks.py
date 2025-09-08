@@ -200,7 +200,7 @@ class WebhookHandler:
             #     return True  # Skip verification if no endpoints configured
             
             # Use the first active webhook endpoint
-            webhook_id = os.environ.get(“PAYPAL_WEBHOOK_ID”)
+            webhook_id = os.environ.get("PAYPAL_WEBHOOK_ID")
             
             # Verify signature using PayPal API
             verification_result = self.client.verify_webhook_signature(
