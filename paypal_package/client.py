@@ -132,25 +132,13 @@ class PayPalClient:
         endpoint = f'/v2/checkout/orders/{order_id}/capture'
         return self._make_request('POST', endpoint)
     
-    def refund_payment(self, capture_id, refund_data):
-        """Refund a payment."""
-        endpoint = f'/v2/payments/captures/{capture_id}/refund'
-        return self._make_request('POST', endpoint, data=refund_data)
+    # def refund_payment(self, capture_id, refund_data):
+    #     """Refund a payment."""
+    #     endpoint = f'/v2/payments/captures/{capture_id}/refund'
+    #     return self._make_request('POST', endpoint, data=refund_data)
     
-    def create_webhook(self, webhook_data):
-        """Create a webhook."""
-        endpoint = '/v1/notifications/webhooks'
-        return self._make_request('POST', endpoint, data=webhook_data)
-    
-    def list_webhooks(self):
-        """List all webhooks."""
-        endpoint = '/v1/notifications/webhooks'
-        return self._make_request('GET', endpoint)
-    
-    def delete_webhook(self, webhook_id):
-        """Delete a webhook."""
-        endpoint = f'/v1/notifications/webhooks/{webhook_id}'
-        return self._make_request('DELETE', endpoint)
+
+
     
     def verify_webhook_signature(self, webhook_id, headers, body):
         """Verify webhook signature."""
@@ -172,21 +160,5 @@ class PayPalClient:
         """Get payment details."""
         endpoint = f'/v2/payments/captures/{payment_id}'
         return self._make_request('GET', endpoint)
-    
-    def create_subscription(self, subscription_data):
-        """Create a subscription."""
-        endpoint = '/v1/billing/subscriptions'
-        return self._make_request('POST', endpoint, data=subscription_data)
-    
-    def get_subscription(self, subscription_id):
-        """Get subscription details."""
-        endpoint = f'/v1/billing/subscriptions/{subscription_id}'
-        return self._make_request('GET', endpoint)
-    
-    def cancel_subscription(self, subscription_id, reason=None):
-        """Cancel a subscription."""
-        endpoint = f'/v1/billing/subscriptions/{subscription_id}/cancel'
-        data = {}
-        if reason:
-            data['reason'] = reason
-        return self._make_request('POST', endpoint, data=data)
+
+

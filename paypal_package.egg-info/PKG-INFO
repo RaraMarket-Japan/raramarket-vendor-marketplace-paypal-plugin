@@ -1,0 +1,104 @@
+Metadata-Version: 2.4
+Name: paypal_package
+Version: 1.0.0
+Summary: A comprehensive PayPal package for credentials and webhook management
+Home-page: https://github.com/yourusername/paypal-package
+Author: Your Name
+Author-email: your.email@example.com
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: requests>=2.25.0
+Requires-Dist: python-dotenv>=0.19.0
+Requires-Dist: cryptography>=3.4.0
+Requires-Dist: django>=3.2.0
+Requires-Dist: djangorestframework>=3.12.0
+Requires-Dist: django-cors-headers>=3.10.0
+Provides-Extra: dev
+Requires-Dist: pytest>=6.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=2.10.0; extra == "dev"
+Requires-Dist: black>=21.0.0; extra == "dev"
+Requires-Dist: flake8>=3.8.0; extra == "dev"
+Requires-Dist: mypy>=0.800; extra == "dev"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license-file
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# PayPal Package
+
+A comprehensive Python package for managing PayPal credentials and webhooks securely.
+
+## Features
+
+- 🔐 Secure credential storage with encryption
+- 🌐 Webhook management and validation
+- 🔄 PayPal API integration
+- 📝 Comprehensive logging
+- 🛡️ Security best practices
+- 🧪 Full test coverage
+
+## Installation
+
+```bash
+pip install paypal-package
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/yourusername/paypal-package.git
+cd paypal-package
+pip install -e .
+```
+
+## Quick Start
+
+### 1. Setup Database Configuration
+
+Add the package to your Django settings and run migrations:
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    # ... your other apps
+    'paypal_package',
+]
+
+# PayPal encryption key (required for credential security)
+PAYPAL_ENCRYPTION_KEY = 'your-32-character-encryption-key-here'
+```
+
+```bash
+# Run migrations
+python manage.py migrate
+```
+
+### 2. Store PayPal Credentials
+
+First, store your PayPal credentials in the database using the management command:
+
+```bash
+python manage.py setup_paypal \
+    --name "My PayPal Account" \
+    --client-id "your_paypal_client_id" \
+    --client-secret "your_paypal_client_secret" \
+    --mode sandbox
+```
+

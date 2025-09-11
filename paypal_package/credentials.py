@@ -27,9 +27,7 @@ class CredentialManager:
         if not key:
             # Generate a new key if none exists
             key = Fernet.generate_key()
-            print(f"Generated new encryption key: {key.decode()}")
-            print("Please set PAYPAL_ENCRYPTION_KEY in your environment variables.")
-        
+
         if isinstance(key, str):
             key = key.encode()
         

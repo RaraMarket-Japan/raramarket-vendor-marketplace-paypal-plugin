@@ -3,7 +3,7 @@ Django REST Framework serializers for PayPal package.
 """
 
 from rest_framework import serializers
-from .models import PayPalConfig, WebhookEvent, WebhookEndpoint
+from .models import PayPalConfig
 
 
 class PayPalConfigSerializer(serializers.ModelSerializer):
@@ -78,116 +78,6 @@ class PayPalConfigUpdateSerializer(serializers.ModelSerializer):
         
         instance.save()
         return instance
-
-
-class WebhookEventSerializer(serializers.ModelSerializer):
-    """Serializer for webhook events."""
-    
-    class Meta:
-        model = WebhookEvent
-        fields = [
-            'id', 'event_id', 'event_type', 'resource_type', 
-            'resource_id', 'summary', 'processed', 'processed_at', 
-            'created_at'
-        ]
-        read_only_fields = [
-            'id', 'event_id', 'event_type', 'resource_type', 
-            'resource_id', 'summary', 'processed', 'processed_at', 
-            'created_at'
-        ]
-
-
-class WebhookEventDetailSerializer(serializers.ModelSerializer):
-    """Detailed serializer for webhook events including raw data."""
-    
-    class Meta:
-        model = WebhookEvent
-        fields = [
-            'id', 'event_id', 'event_type', 'resource_type', 
-            'resource_id', 'summary', 'raw_data', 'processed', 
-            'processed_at', 'created_at'
-        ]
-        read_only_fields = [
-            'id', 'event_id', 'event_type', 'resource_type', 
-            'resource_id', 'summary', 'raw_data', 'processed', 
-            'processed_at', 'created_at'
-        ]
-
-
-class WebhookEndpointSerializer(serializers.ModelSerializer):
-    """Serializer for webhook endpoints."""
-    
-    events = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="List of event types to listen for"
-    )
-    
-    class Meta:
-        model = WebhookEndpoint
-        fields = [
-            'id', 'name', 'url', 'events', 'webhook_id', 
-            'is_active', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'webhook_id', 'created_at', 'updated_at']
-    
-    def validate_events(self, value):
-        """Validate event types."""
-        valid_events = [choice[0] for choice in WebhookEvent.EVENT_TYPES]
-        invalid_events = [event for event in value if event not in valid_events]
-        
-        if invalid_events:
-            raise serializers.ValidationError(
-                f"Invalid event types: {invalid_events}. "
-                f"Valid types: {valid_events}"
-            )
-        
-        return value
-
-
-class WebhookEndpointCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating webhook endpoints."""
-    
-    events = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="List of event types to listen for"
-    )
-    
-    class Meta:
-        model = WebhookEndpoint
-        fields = ['name', 'url', 'events']
-    
-    def validate_events(self, value):
-        """Validate event types."""
-        valid_events = [choice[0] for choice in WebhookEvent.EVENT_TYPES]
-        invalid_events = [event for event in value if event not in valid_events]
-        
-        if invalid_events:
-            raise serializers.ValidationError(
-                f"Invalid event types: {invalid_events}. "
-                f"Valid types: {valid_events}"
-            )
-        
-        return value
-    
-    def create(self, validated_data):
-        """Create webhook endpoint and register with PayPal."""
-        from .webhooks import WebhookManager
-        
-        webhook_manager = WebhookManager()
-        
-        try:
-            # Create webhook in PayPal
-            response = webhook_manager.create_webhook(
-                url=validated_data['url'],
-                events=validated_data['events'],
-                name=validated_data['name']
-            )
-            
-            # The WebhookManager.create_webhook method already creates the database record
-            return WebhookEndpoint.objects.get(webhook_id=response.get('id'))
-            
-        except Exception as e:
-            raise serializers.ValidationError(f"Failed to create webhook: {str(e)}")
 
 
 class PayPalOrderSerializer(serializers.Serializer):
