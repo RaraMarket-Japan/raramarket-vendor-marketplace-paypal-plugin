@@ -106,79 +106,89 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
 
 
     def capture_payment(self, request, order_id):
+        """
+        Capture a PayPal payment for a single order or order group.
+        Supports both CAPTURE and AUTHORIZE intents.
+        """
         try:
             client = PayPalClient()
             order_data = client.get_order(order_id)
             logger.info(f"PayPal order data: {order_data}")
-            order_status = order_data.get("status")
 
-            if order_status not in ["APPROVED", "COMPLETED"]:
-                return Response({"detail": f"Order not approved. Status: {order_status}"}, status=status.HTTP_400_BAD_REQUEST)
+            order_status = order_data.get("status")
+            intent = order_data.get("intent")
+
+            if order_status not in ["APPROVED", "COMPLETED", "PENDING"]:
+                return Response(
+                    {"detail": f"Order not in a capturable state. Status: {order_status}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get purchase unit
+            pu = order_data.get("purchase_units", [{}])[0]
+            custom_id = pu.get("custom_id")
+            if not custom_id:
+                return Response(
+                    {"detail": f"No custom_id in PayPal order {order_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # Parse custom_id
-            pu_list = order_data.get("purchase_units", [])
-            custom_id_str = ""
-            for pu in pu_list:
-                if pu.get("custom_id"):
-                    custom_id_str = pu["custom_id"]
-                    break
+            prefix, id_str = custom_id.split("-", 1)
+            if not id_str.isdigit():
+                return Response(
+                    {"detail": f"Invalid custom_id format in PayPal order {order_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            obj_id = int(id_str)
 
-            if not custom_id_str:
-                return Response({"detail": f"No custom_id in PayPal order {order_id}"}, status=status.HTTP_400_BAD_REQUEST)
+            # Capture the payment depending on intent
+            capture_response = {}
+            if intent.upper() == "AUTHORIZE":
+                # Step 1: authorize the order
+                authorize_resp = client.authorize_order(order_id)
+                logger.info(f"PayPal authorize response: {authorize_resp}")
 
-            parent_ids, child_ids = [], []
-            for part in custom_id_str.split(","):
-                part = part.strip()
-                if "-" not in part:
+                auths = authorize_resp.get("purchase_units", [{}])[0].get("payments", {}).get("authorizations", [])
+                if not auths:
+                    return Response(
+                        {"detail": f"No authorizations found for PayPal order {order_id}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                auth_id = auths[0]["id"]
+
+                # Step 2: capture the authorization
+                capture_response = client.capture_authorization(auth_id)
+                logger.info(f"PayPal capture response: {capture_response}")
+
+            else:  # CAPTURE intent
+                capture_response = client.capture_payment(order_id)
+                logger.info(f"PayPal capture response: {capture_response}")
+
+            # Extract captures
+            captures = capture_response.get("purchase_units", [{}])[0].get("payments", {}).get("captures", [])
+            paid_amount = 0.0
+            capture_id = None
+            capture_status = None
+
+            for cap in captures:
+                capture_id = cap.get("id")
+                capture_status = cap.get("status", "PENDING").upper()
+                amt = cap.get("amount", {})
+                try:
+                    paid_amount += float(str(amt.get("value", 0)).replace(",", ""))
+                except (ValueError, TypeError):
                     continue
-                prefix, id_str = part.split("-", 1)
-                if not id_str.isdigit():
-                    continue
-                if prefix.upper() == "P":
-                    parent_ids.append(int(id_str))
-                elif prefix.upper() == "C":
-                    child_ids.append(int(id_str))
 
-            if not parent_ids and not child_ids:
-                return Response({"detail": "No parent/child IDs found in PayPal order."}, status=status.HTTP_400_BAD_REQUEST)
+            if not capture_status:
+                capture_status = "PENDING"
 
-            # Capture from PayPal
-            capture_response = client.capture_payment(order_id)
-            logger.info(f"PayPal capture response: {capture_response}")
-
-            updated_ids = []
-            last_capture_status = None
-            last_capture_id = None
-
-            for pu in capture_response.get("purchase_units", []):
-                pu_custom_id = pu.get("custom_id")
-                if not pu_custom_id:
-                    continue
-
-                prefix, id_str = pu_custom_id.split("-", 1)
-                if not id_str.isdigit():
-                    continue
-                obj_id = int(id_str)
-
-                # Sum all captures
-                capture_id = None
-                capture_status = None
-                paid_amount = 0.0
-                for cap in pu.get("payments", {}).get("captures", []):
-                    capture_id = cap.get("id")
-                    capture_status = cap.get("status")
-                    last_capture_id = capture_id
-                    last_capture_status = capture_status
-                    amt = cap.get("amount", {})
-                    try:
-                        paid_amount += float(str(amt.get("value", 0)).replace(",", ""))
-                    except (ValueError, TypeError):
-                        continue
-
-                # Parent (OrderGroup)
-                if prefix.upper() == "P" and obj_id in parent_ids:
-                    parent_payments = Payment.objects.filter(order_group__id=obj_id)
-                    order_group = OrderGroup.objects.filter(id=obj_id).first()
+            # Update database
+            if prefix.upper() == "OG":
+                order_group = OrderGroup.objects.filter(id=obj_id).first()
+                if order_group:
+                    # Update payments
+                    parent_payments = Payment.objects.filter(order_group=order_group)
                     for payment in parent_payments:
                         with transaction.atomic():
                             payment.status = self._map_status(capture_status)
@@ -186,62 +196,71 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                             if capture_id:
                                 payment.payment_id = capture_id
                             payment.save()
-                            updated_ids.append(payment.id)
-                    if order_group:
+
                         order_group.order_status = (
                             OrderGroup.OrderStatus.COMPLETED
                             if capture_status == "COMPLETED"
-                            else OrderGroup.OrderStatus.PROCESSING
+                            else OrderGroup.OrderStatus.PENDING
                         )
-                        order_group.save()
+                    order_group.save()
+
+                    # Activitylog for each child order
+                    child_orders = Order.objects.filter(parent_order=order_group)
+                    for order in child_orders:
+                        Activitylog.objects.create(
+                            activity_log_type="PAYMENT_CAPTURE_INITIATED",
+                            message=json.dumps(pu)[:5000],
+                            content_object=order
+                        )
+
+            if prefix.upper() == "G":  # Single Order
+                order = Order.objects.filter(id=obj_id).first()
+                if order:
+                    payment = Payment.objects.filter(order=order).first()
+                    if payment:
+                        with transaction.atomic():
+                            payment.status = self._map_status(capture_status)
+                            payment.paid_amount = paid_amount
+                            if capture_id:
+                                payment.payment_id = capture_id
+                            payment.save()
+
+                        order.order_status = (
+                            Order.OrderStatus.COMPLETED
+                            if capture_status == "COMPLETED"
+                            else Order.OrderStatus.PENDING
+                        )
+                    order.save()
+
+                    # Activitylog linked to the order
                     Activitylog.objects.create(
-                        action="PAYMENT_CAPTURE_COMPLETED",
-                        description=json.dumps(pu)[:5000],
-                        status="SUCCESS",
-                        order_group=order_group,
+                        activity_log_type="PAYMENT_CAPTURE_COMPLETED",
+                        message=json.dumps(payload),
+                        content_object=order
                     )
 
-                # Child (Order)
-                elif prefix.upper() == "C" and obj_id in child_ids:
-                    child_payment = Payment.objects.filter(order__id=obj_id).first()
-                    if child_payment:
-                        with transaction.atomic():
-                            child_payment.status = self._map_status(capture_status)
-                            child_payment.paid_amount = paid_amount
-                            if capture_id:
-                                child_payment.payment_id = capture_id
-                            child_payment.save()
-                            updated_ids.append(child_payment.id)
-                        if child_payment.order:
-                            child_payment.order.order_status = (
-                                Order.OrderStatus.COMPLETED
-                                if capture_status == "COMPLETED"
-                                else Order.OrderStatus.PROCESSING
-                            )
-                            child_payment.order.save()
-                        Activitylog.objects.create(
-                            action="PAYMENT_CAPTURE_COMPLETED",
-                            description=json.dumps(pu)[:5000],
-                            status="SUCCESS",
-                            order=child_payment.order,
-                        )
-
-      
             return Response(capture_response, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.exception("Error during PayPal capture")
-            return Response({"detail": f"Internal server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"detail": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-    # Map PayPal status to Payment status
+
     def _map_status(self, paypal_status: str):
-        if paypal_status == "COMPLETED":
-            return Payment.PAYMENT_COMPLETE
-        elif paypal_status == "PENDING":
-            return Payment.PAYMENT_PENDING
-        elif paypal_status in ["DECLINED", "FAILED"]:
-            return Payment.PAYMENT_FAILED
-        return Payment.PAYMENT_PENDING
+        """Map PayPal status to local Payment status."""
+        status_map = {
+            "COMPLETED": Payment.PAYMENT_COMPLETE,
+            "APPROVED": Payment.PAYMENT_PENDING,
+            "PENDING": Payment.PAYMENT_PENDING,
+            "REVIEW": Payment.PAYMENT_PENDING,
+            "DECLINED": Payment.PAYMENT_FAILED,
+            "FAILED": Payment.PAYMENT_FAILED,
+        }
+        return status_map.get(paypal_status.upper(), Payment.PAYMENT_PENDING)
+
 
 # -----------------------------
 # Webhook view (no auth required)
@@ -251,9 +270,8 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
 def paypal_webhook_drf_view(request):
     """Receive PayPal webhook and acknowledge immediately."""
     try:
-        # Log receipt
-        logger.info("Received PayPal webhook")
-        print(request.body)
+
+
         # Optionally process asynchronously
         handler = WebhookHandler()
         handler.process_webhook_drf(request)  # you can do this in a background task if needed
