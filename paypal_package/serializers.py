@@ -106,31 +106,3 @@ class PayPalOrderSerializer(serializers.Serializer):
         return value
 
 
-class PayPalCaptureSerializer(serializers.Serializer):
-    """Serializer for capturing PayPal payments."""
-    
-    note_to_payer = serializers.CharField(required=False, max_length=255)
-
-
-class PayPalRefundSerializer(serializers.Serializer):
-    """Serializer for refunding PayPal payments."""
-    
-    amount = serializers.DictField(required=False)
-    note_to_payer = serializers.CharField(required=False, max_length=255)
-    invoice_id = serializers.CharField(required=False, max_length=127)
-    reason = serializers.ChoiceField(
-        choices=[
-            ('BUYER_REQUESTED', 'Buyer requested'),
-            ('DUPLICATE_TRANSACTION', 'Duplicate transaction'),
-            ('ITEM_NOT_RECEIVED', 'Item not received'),
-            ('ITEM_NOT_AS_DESCRIBED', 'Item not as described'),
-            ('UNAUTHORIZED_TRANSACTION', 'Unauthorized transaction'),
-        ],
-        required=False
-    )
-    
-    def validate_amount(self, value):
-        """Validate refund amount."""
-        if 'currency_code' not in value or 'value' not in value:
-            raise serializers.ValidationError("Amount must have 'currency_code' and 'value' fields")
-        return value

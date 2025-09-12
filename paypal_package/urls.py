@@ -15,7 +15,7 @@ urlpatterns = [
     path('paypal-config/', include(router.urls)),
 
     
-    path('webhook/paypal/', views.paypal_webhook_view, name='paypal-webhook'),
+    path('webhook/paypal/', views.paypal_webhook_drf_view, name='paypal-webhook'),
     # Payment endpoints
     path('paypal-orders/', views.PayPalPaymentViewSet.as_view({
         'post': 'create_order'
