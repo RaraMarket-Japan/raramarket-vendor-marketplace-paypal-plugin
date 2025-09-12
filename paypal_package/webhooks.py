@@ -95,16 +95,21 @@ class WebhookHandler:
             )
 
         # Parse
-        if isinstance(raw, str) and "-" in raw:
-            pref, tail = raw.split("-", 1)
-            if tail.isdigit():
-                scope = pref.upper()   # "OG" or "G"
-                num_id = int(tail)
-        elif isinstance(raw, str) and raw.isdigit():
-            scope = "G"  # default single order
-            num_id = int(raw)
+        if isinstance(raw, str):
+            if "-" in raw:
+                pref, tail = raw.split("-", 1)
+                if tail.isdigit():
+                    scope = pref.upper()
+                    num_id = int(tail)
+            elif raw.upper().startswith("OG") and raw[2:].isdigit():
+                scope = "OG"
+                num_id = int(raw[2:])
+            elif raw.upper().startswith("G") and raw[1:].isdigit():
+                scope = "G"
+                num_id = int(raw[1:])
 
         return scope, num_id, raw
+            
 
     def _process_event(self, webhook_data: Dict[str, Any], request=None):
         """Route event based on type."""

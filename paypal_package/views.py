@@ -134,13 +134,25 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                 )
 
             # Parse custom_id
-            prefix, id_str = custom_id.split("-", 1)
-            if not id_str.isdigit():
+            if "-" in custom_id:
+                prefix, id_str = custom_id.split("-", 1)
+                if not id_str.isdigit():
+                    return Response(
+                        {"detail": f"Invalid custom_id format in PayPal order {order_id}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                obj_id = int(id_str)
+            elif custom_id.upper().startswith("OG") and custom_id[2:].isdigit():
+                prefix = "OG"
+                obj_id = int(custom_id[2:])
+            elif custom_id.upper().startswith("G") and custom_id[1:].isdigit():
+                prefix = "G"
+                obj_id = int(custom_id[1:])
+            else:
                 return Response(
                     {"detail": f"Invalid custom_id format in PayPal order {order_id}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            obj_id = int(id_str)
 
             # Capture the payment depending on intent
             capture_response = {}
