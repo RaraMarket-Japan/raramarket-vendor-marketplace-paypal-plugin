@@ -134,23 +134,16 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                 )
 
             # Parse custom_id
-            if "-" in custom_id:
-                prefix, id_str = custom_id.split("-", 1)
-                if not id_str.isdigit():
-                    return Response(
-                        {"detail": f"Invalid custom_id format in PayPal order {order_id}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                obj_id = int(id_str)
-            elif custom_id.upper().startswith("OG") and custom_id[2:].isdigit():
+            custom_id_upper = custom_id.upper()
+            if custom_id_upper.startswith("OG") and custom_id_upper[2:].isdigit():
                 prefix = "OG"
-                obj_id = int(custom_id[2:])
-            elif custom_id.upper().startswith("G") and custom_id[1:].isdigit():
+                obj_id = int(custom_id_upper[2:])
+            elif custom_id_upper.startswith("G") and custom_id_upper[1:].isdigit():
                 prefix = "G"
-                obj_id = int(custom_id[1:])
+                obj_id = int(custom_id_upper[1:])
             else:
                 return Response(
-                    {"detail": f"Invalid custom_id format in PayPal order {order_id}"},
+                    {"detail": f"Invalid custom_id format in PayPal order {order_id}: {custom_id}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

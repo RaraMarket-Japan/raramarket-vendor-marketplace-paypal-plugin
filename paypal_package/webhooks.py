@@ -31,17 +31,17 @@ class WebhookHandler:
             object_id = getattr(obj, "id", None)
 
             if not object_id and payload.get("custom_id"):
-                cid = payload["custom_id"]
-                if "-" in cid:
-                    _, num = cid.split("-", 1)
-                    if num.isdigit():
-                        object_id = int(num)
+                cid = payload["custom_id"].upper()
+                if cid.startswith("OG") and cid[2:].isdigit():
+                    object_id = int(cid[2:])
+                elif cid.startswith("G") and cid[1:].isdigit():
+                    object_id = int(cid[1:])
             elif not object_id and payload.get("id"):
-                raw_id = str(payload["id"])
-                if "-" in raw_id:
-                    num = raw_id.split("-", 1)[1]
-                    if num.isdigit():
-                        object_id = int(num)
+                raw_id = str(payload["id"]).upper()
+                if raw_id.startswith("OG") and raw_id[2:].isdigit():
+                    object_id = int(raw_id[2:])
+                elif raw_id.startswith("G") and raw_id[1:].isdigit():
+                    object_id = int(raw_id[1:])
 
             Activitylog.objects.create(
                 activity_log_type=action,
@@ -96,17 +96,14 @@ class WebhookHandler:
 
         # Parse
         if isinstance(raw, str):
-            if "-" in raw:
-                pref, tail = raw.split("-", 1)
-                if tail.isdigit():
-                    scope = pref.upper()
-                    num_id = int(tail)
-            elif raw.upper().startswith("OG") and raw[2:].isdigit():
+            raw = raw.upper()
+            if raw.startswith("OG") and raw[2:].isdigit():
                 scope = "OG"
                 num_id = int(raw[2:])
-            elif raw.upper().startswith("G") and raw[1:].isdigit():
+            elif raw.startswith("G") and raw[1:].isdigit():
                 scope = "G"
                 num_id = int(raw[1:])
+
 
         return scope, num_id, raw
             
