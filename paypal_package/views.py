@@ -17,60 +17,24 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from .models import PayPalConfig
 from .serializers import (
-    PayPalConfigSerializer, PayPalConfigUpdateSerializer,
+    PayPalConfigSerializer,
     PayPalOrderSerializer
 )
 from .client import PayPalClient
 from order.models import Payment, Order, OrderGroup
 from product.models import Activitylog
 from .webhooks import WebhookHandler
-logger = logging.getLogger(__name__)
 
 # -----------------------------
 # PayPal Configuration ViewSet
 # -----------------------------
 class PayPalConfigViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing PayPal configurations."""
-
     queryset = PayPalConfig.objects.all()
     serializer_class = PayPalConfigSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['mode', 'is_active', 'name']
 
-    search_fields = ['name']
-    ordering_fields = ['name', 'created_at', 'updated_at']
-    ordering = ['-created_at']
 
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return PayPalConfigSerializer
-        elif self.action in ['update', 'partial_update']:
-            return PayPalConfigUpdateSerializer
-        return PayPalConfigSerializer
 
-    @action(detail=True, methods=['post'])
-    def set_active(self, request, pk=None):
-        from .credentials import CredentialManager
-        config = self.get_object()
-        credential_manager = CredentialManager()
-        try:
-            credential_manager.set_active_configuration(config.name)
-            return Response({'status': 'Configuration activated'})
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=False, methods=['get'])
-    def active(self, request):
-        from .credentials import CredentialManager
-        credential_manager = CredentialManager()
-        config = credential_manager.get_active_configuration()
-        if config:
-            serializer = self.get_serializer(config)
-            return Response(serializer.data)
-        return Response({'error': 'No active configuration found'}, status=status.HTTP_404_NOT_FOUND)
-
-# -----------------------------
 # PayPal Payment ViewSet
 # -----------------------------
 class PayPalPaymentViewSet(viewsets.ViewSet):
@@ -108,12 +72,12 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
     def capture_payment(self, request, order_id):
         """
         Capture a PayPal payment for a single order or order group.
-        Supports both CAPTURE and AUTHORIZE intents.
+        Handles both CAPTURE and AUTHORIZE intents.
+        Updates payment and order statuses based on capture status.
         """
         try:
             client = PayPalClient()
             order_data = client.get_order(order_id)
-            logger.info(f"PayPal order data: {order_data}")
 
             order_status = order_data.get("status")
             intent = order_data.get("intent")
@@ -124,7 +88,7 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Get purchase unit
+            # Get first purchase unit
             pu = order_data.get("purchase_units", [{}])[0]
             custom_id = pu.get("custom_id")
             if not custom_id:
@@ -150,10 +114,7 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
             # Capture the payment depending on intent
             capture_response = {}
             if intent.upper() == "AUTHORIZE":
-                # Step 1: authorize the order
                 authorize_resp = client.authorize_order(order_id)
-                logger.info(f"PayPal authorize response: {authorize_resp}")
-
                 auths = authorize_resp.get("purchase_units", [{}])[0].get("payments", {}).get("authorizations", [])
                 if not auths:
                     return Response(
@@ -161,20 +122,15 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 auth_id = auths[0]["id"]
-
-                # Step 2: capture the authorization
                 capture_response = client.capture_authorization(auth_id)
-                logger.info(f"PayPal capture response: {capture_response}")
-
             else:  # CAPTURE intent
                 capture_response = client.capture_payment(order_id)
-                logger.info(f"PayPal capture response: {capture_response}")
 
             # Extract captures
-            captures = capture_response.get("purchase_units", [{}])[0].get("payments", {}).get("captures", [])
+            captures = pu.get("payments", {}).get("captures", [])
             paid_amount = 0.0
             capture_id = None
-            capture_status = None
+            capture_status = "PENDING"
 
             for cap in captures:
                 capture_id = cap.get("id")
@@ -185,31 +141,31 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                 except (ValueError, TypeError):
                     continue
 
-            if not capture_status:
-                capture_status = "PENDING"
+            # Determine local payment/order status
+            if capture_status == "COMPLETED":
+                payment_status = Payment.PAYMENT_COMPLETE  # Paid
+                order_status_value = Order.OrderStatus.PROCESSING
+            else:  # Pending or other
+                payment_status = Payment.PAYMENT_PENDING
+                order_status_value = Order.OrderStatus.PENDING
 
             # Update database
             if prefix.upper() == "OG":
                 order_group = OrderGroup.objects.filter(id=obj_id).first()
                 if order_group:
-                    # Update payments
                     parent_payments = Payment.objects.filter(order_group=order_group)
                     for payment in parent_payments:
                         with transaction.atomic():
-                            payment.status = self._map_status(capture_status)
+                            payment.status = payment_status
                             payment.paid_amount = paid_amount
                             if capture_id:
                                 payment.payment_id = capture_id
                             payment.save()
 
-                        order_group.order_status = (
-                            OrderGroup.OrderStatus.COMPLETED
-                            if capture_status == "COMPLETED"
-                            else OrderGroup.OrderStatus.PENDING
-                        )
+                    order_group.order_status = order_status_value
                     order_group.save()
 
-                    # Activitylog for each child order
+                    # Activity log for child orders
                     child_orders = Order.objects.filter(parent_order=order_group)
                     for order in child_orders:
                         Activitylog.objects.create(
@@ -218,26 +174,22 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
                             content_object=order
                         )
 
-            if prefix.upper() == "G":  # Single Order
+            elif prefix.upper() == "G":  # Single Order
                 order = Order.objects.filter(id=obj_id).first()
                 if order:
                     payment = Payment.objects.filter(order=order).first()
                     if payment:
                         with transaction.atomic():
-                            payment.status = self._map_status(capture_status)
+                            payment.status = payment_status
                             payment.paid_amount = paid_amount
                             if capture_id:
                                 payment.payment_id = capture_id
                             payment.save()
 
-                        order.order_status = (
-                            Order.OrderStatus.COMPLETED
-                            if capture_status == "COMPLETED"
-                            else Order.OrderStatus.PENDING
-                        )
+                    order.order_status = order_status_value
                     order.save()
 
-                    # Activitylog linked to the order
+                    # Activity log
                     Activitylog.objects.create(
                         activity_log_type="PAYMENT_CAPTURE_COMPLETED",
                         message=json.dumps(payload),
@@ -247,7 +199,6 @@ class PayPalPaymentViewSet(viewsets.ViewSet):
             return Response(capture_response, status=status.HTTP_200_OK)
 
         except Exception as e:
-            logger.exception("Error during PayPal capture")
             return Response(
                 {"detail": f"Internal server error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -277,14 +228,12 @@ def paypal_webhook_drf_view(request):
     try:
 
 
-        # Optionally process asynchronously
         handler = WebhookHandler()
-        handler.process_webhook_drf(request)  # you can do this in a background task if needed
+        handler.process_webhook_drf(request) 
 
         # Always respond 200 OK to PayPal
         return Response({'status': 'ok'}, status=200)
     
     except Exception as e:
-        logger.exception("Error processing PayPal webhook")
-        # Still return 200 to avoid retries
+  
         return Response({'status': 'ok'}, status=200)
